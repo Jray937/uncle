@@ -3,11 +3,14 @@ import { cors } from 'hono/cors';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 type Bindings = {
-  KEYCLOAK_ISSUER: string;
-  KEYCLOAK_AUDIENCE: string;
+  CLERK_ISSUER_URL: string;
 };
 
-const app = new Hono<{ Bindings: Bindings }>();
+type Variables = {
+  user: any;
+}
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Enable CORS
 app.use('/*', cors());
@@ -20,19 +23,21 @@ const authMiddleware = async (c: any, next: any) => {
   }
 
   const token = authHeader.split(' ')[1];
-  const issuer = c.env.KEYCLOAK_ISSUER;
   
-  // Construct the JWKS URL from the issuer
-  const jwksUrl = new URL(
-    `${issuer}/protocol/openid-connect/certs`
-  );
+  // Clerk's JWKS endpoint allows fetching the public keys to verify the token
+  // If you use a custom domain, it might be https://auth.yourdomain.com/.well-known/jwks.json
+  // Or simpler, set CLERK_ISSUER_URL env var to your Clerk Frontend API URL provided in dashboard
+  const issuer = c.env.CLERK_ISSUER_URL; 
 
   try {
+    // Determine JWKS URL based on issuer configuration
+    // Clerk issuer usually looks like: https://clerk.your-app.com
+    const jwksUrl = new URL(`${issuer}/.well-known/jwks.json`);
+
     const JWKS = createRemoteJWKSet(jwksUrl);
     
     const { payload } = await jwtVerify(token, JWKS, {
       issuer: issuer,
-      // audience: c.env.KEYCLOAK_AUDIENCE, // Uncomment to verify audience if needed
     });
 
     // Attach user info to context
@@ -46,7 +51,7 @@ const authMiddleware = async (c: any, next: any) => {
 
 // Public Endpoint
 app.get('/', (c) => {
-  return c.text('Welcome to Uncle - The Trust Me Bro Backend!');
+  return c.text('Welcome to Uncle - The Trust Me Bro Backend (Powered by Clerk)!');
 });
 
 app.get('/api/public', (c) => {
@@ -59,10 +64,10 @@ app.get('/api/private', authMiddleware, (c) => {
   return c.json({ 
     message: 'Secure data accessed successfully!',
     user: {
-      sub: user.sub,
-      name: user.name,
-      email: user.email,
-      roles: user.realm_access?.roles || []
+      id: user.sub, // Clerk user ID
+      // Clerk tokens don't always include email/name by default unless configured in JWT templates
+      // but 'sub' is guaranteed.
+      ...user
     }
   });
 });
