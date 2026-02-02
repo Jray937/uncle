@@ -1,0 +1,8 @@
+name = "uncle"
+compatibility_date = "2023-12-01"
+
+# Keycloak Configuration (Environment variables)
+# You should set these in Cloudflare Dashboard -> Settings -> Variables
+[vars]
+KEYCLOAK_ISSUER = "http://localhost:8180/realms/trustmebro"
+KEYCLOAK_AUDIENCE = "account"
