@@ -34,6 +34,21 @@ app.use('/*', cors());
 
 // Authentication Middleware
 const authMiddleware = async (c: any, next: any) => {
+  // Bypass authentication for demo mode
+  // Use a consistent demo user ID to allow data persistence
+  const demoUser = {
+    sub: 'demo-user-id',
+    email: 'demo@trustmebro.com',
+    name: 'Demo User'
+  };
+  
+  c.set('user', demoUser);
+  await next();
+};
+
+/* 
+// Original Auth Middleware (Commented out)
+const authMiddleware = async (c: any, next: any) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return c.json({ error: 'Unauthorized: Missing or invalid token' }, 401);
@@ -65,6 +80,7 @@ const authMiddleware = async (c: any, next: any) => {
     return c.json({ error: 'Unauthorized: Invalid token' }, 401);
   }
 };
+*/
 
 // Public Endpoint
 app.get('/', async (c) => {
