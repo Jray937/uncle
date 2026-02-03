@@ -71,9 +71,11 @@ app.get('/api/health', async (c) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Database connection failed';
     return c.json({
       status: 'error',
-      message: 'Database connection failed'
+      message: 'Database connection failed',
+      details: errorMessage
     }, 500);
   }
 });
