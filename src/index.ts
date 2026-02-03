@@ -4,6 +4,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 type Bindings = {
   CLERK_ISSUER_URL: string;
+  TIINGO_API_TOKEN: string;
   'd1-binding': D1Database;
 };
 
@@ -99,6 +100,181 @@ app.get('/api/private', authMiddleware, (c) => {
       ...user
     }
   });
+});
+
+// Tiingo Search Endpoint
+app.get('/api/search', async (c) => {
+  const query = c.req.query('query');
+  if (!query) {
+    return c.json({ error: 'Query parameter is required' }, 400);
+  }
+
+  const token = c.env.TIINGO_API_TOKEN;
+  const url = `https://api.tiingo.com/tiingo/utilities/search?query=${encodeURIComponent(query)}&token=${token}`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return c.json({ error: 'Failed to fetch search results' }, 500);
+    }
+    const data = await response.json();
+    return c.json(data);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Search request failed', details: errorMessage }, 500);
+  }
+});
+
+// Get Holdings Endpoint
+app.get('/api/holdings', authMiddleware, async (c) => {
+  const user = c.get('user');
+  const userId = user.sub;
+
+  try {
+    // Query holdings from D1
+    const result = await c.env['d1-binding']
+      .prepare('SELECT * FROM holdings WHERE user_id = ?')
+      .bind(userId)
+      .all();
+
+    const holdings = result.results || [];
+
+    if (holdings.length === 0) {
+      return c.json([]);
+    }
+
+    // Extract unique symbols
+    const symbols = [...new Set(holdings.map((h: any) => h.symbol))].join(',');
+
+    // Fetch current prices from Tiingo
+    const token = c.env.TIINGO_API_TOKEN;
+    const priceUrl = `https://api.tiingo.com/iex/?tickers=${symbols}&token=${token}`;
+
+    const priceResponse = await fetch(priceUrl);
+    if (!priceResponse.ok) {
+      // Return holdings without price data if Tiingo fails
+      return c.json(holdings);
+    }
+
+    const priceData = await priceResponse.json();
+
+    // Create a map of symbol to price
+    const priceMap: Record<string, any> = {};
+    if (Array.isArray(priceData)) {
+      priceData.forEach((item: any) => {
+        priceMap[item.ticker] = item;
+      });
+    }
+
+    // Merge price data with holdings
+    const enrichedHoldings = holdings.map((holding: any) => ({
+      ...holding,
+      currentPrice: priceMap[holding.symbol]?.last || null,
+      priceData: priceMap[holding.symbol] || null
+    }));
+
+    return c.json(enrichedHoldings);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Failed to fetch holdings', details: errorMessage }, 500);
+  }
+});
+
+// Create Holdings Endpoint
+app.post('/api/holdings', authMiddleware, async (c) => {
+  const user = c.get('user');
+  const userId = user.sub;
+
+  try {
+    const body = await c.req.json();
+    const { symbol, name, shares, avg_price } = body;
+
+    // Validate input
+    if (!symbol || !name || shares === undefined || avg_price === undefined) {
+      return c.json({ error: 'Missing required fields: symbol, name, shares, avg_price' }, 400);
+    }
+
+    if (typeof shares !== 'number' || typeof avg_price !== 'number') {
+      return c.json({ error: 'shares and avg_price must be numbers' }, 400);
+    }
+
+    // Insert into D1
+    const result = await c.env['d1-binding']
+      .prepare('INSERT INTO holdings (user_id, symbol, name, shares, avg_price) VALUES (?, ?, ?, ?, ?)')
+      .bind(userId, symbol, name, shares, avg_price)
+      .run();
+
+    return c.json({ 
+      success: true, 
+      id: result.meta.last_row_id,
+      message: 'Holding added successfully' 
+    }, 201);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Failed to create holding', details: errorMessage }, 500);
+  }
+});
+
+// Delete Holdings Endpoint
+app.delete('/api/holdings/:id', authMiddleware, async (c) => {
+  const user = c.get('user');
+  const userId = user.sub;
+  const id = c.req.param('id');
+
+  try {
+    // Delete from D1 where id matches and user_id matches
+    const result = await c.env['d1-binding']
+      .prepare('DELETE FROM holdings WHERE id = ? AND user_id = ?')
+      .bind(id, userId)
+      .run();
+
+    if (result.meta.changes === 0) {
+      return c.json({ error: 'Holding not found or unauthorized' }, 404);
+    }
+
+    return c.json({ success: true, message: 'Holding deleted successfully' });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Failed to delete holding', details: errorMessage }, 500);
+  }
+});
+
+// Get News Endpoint
+app.get('/api/news', authMiddleware, async (c) => {
+  const user = c.get('user');
+  const userId = user.sub;
+
+  try {
+    // Fetch holdings to get symbols
+    const result = await c.env['d1-binding']
+      .prepare('SELECT DISTINCT symbol FROM holdings WHERE user_id = ?')
+      .bind(userId)
+      .all();
+
+    const holdings = result.results || [];
+
+    if (holdings.length === 0) {
+      return c.json([]);
+    }
+
+    // Extract unique symbols
+    const symbols = holdings.map((h: any) => h.symbol).join(',');
+
+    // Fetch news from Tiingo
+    const token = c.env.TIINGO_API_TOKEN;
+    const newsUrl = `https://api.tiingo.com/tiingo/news?tickers=${symbols}&token=${token}`;
+
+    const newsResponse = await fetch(newsUrl);
+    if (!newsResponse.ok) {
+      return c.json({ error: 'Failed to fetch news' }, 500);
+    }
+
+    const newsData = await newsResponse.json();
+    return c.json(newsData);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Failed to fetch news', details: errorMessage }, 500);
+  }
 });
 
 export default app;
