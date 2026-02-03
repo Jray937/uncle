@@ -4,3 +4,9 @@ main = "src/index.ts"
 # Clerk Configuration
 [vars]
 CLERK_ISSUER_URL = "https://clerk.trustmebro.com"
+
+# D1 Database Configuration
+[[d1_databases]]
+binding = "d1-binding"
+database_name = "d1-binding"
+database_id = "65457dc9-8341-4f69-ace2-413bdf1043cc"
