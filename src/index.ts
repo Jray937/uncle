@@ -58,6 +58,15 @@ app.get('/api/public', (c) => {
   return c.json({ message: 'This is public data accessible to anyone.' });
 });
 
+// Health Check Endpoint
+app.get('/api/health', (c) => {
+  return c.json({
+    status: 'ok',
+    message: 'Uncle backend is healthy',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Protected Endpoint
 app.get('/api/private', authMiddleware, (c) => {
   const user = c.get('user');
