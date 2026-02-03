@@ -229,8 +229,8 @@ app.post('/api/holdings', authMiddleware, async (c) => {
       return c.json({ error: 'shares must be greater than 0' }, 400);
     }
 
-    if (avg_price < 0) {
-      return c.json({ error: 'avg_price must be non-negative' }, 400);
+    if (avg_price <= 0) {
+      return c.json({ error: 'avg_price must be greater than 0' }, 400);
     }
 
     // Insert into D1
@@ -286,7 +286,7 @@ app.get('/api/news', authMiddleware, async (c) => {
       .bind(userId)
       .all();
 
-    const holdings = result.results as Pick<Holding, 'symbol'>[] || [];
+    const holdings = (result.results || []) as Pick<Holding, 'symbol'>[];
 
     if (holdings.length === 0) {
       return c.json([]);
