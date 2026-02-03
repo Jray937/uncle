@@ -4,6 +4,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 type Bindings = {
   CLERK_ISSUER_URL: string;
+  'd1-binding': D1Database;
 };
 
 type Variables = {
@@ -59,12 +60,22 @@ app.get('/api/public', (c) => {
 });
 
 // Health Check Endpoint
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'ok',
-    message: 'Uncle backend is healthy',
-    timestamp: new Date().toISOString()
-  });
+app.get('/api/health', async (c) => {
+  try {
+    // Verify database connection
+    await c.env['d1-binding'].prepare('SELECT 1').first();
+    
+    return c.json({
+      status: 'ok',
+      message: 'Uncle backend is healthy',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    return c.json({
+      status: 'error',
+      message: 'Database connection failed'
+    }, 500);
+  }
 });
 
 // Protected Endpoint
