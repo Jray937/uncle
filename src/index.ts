@@ -12,6 +12,21 @@ type Variables = {
   user: any;
 }
 
+interface Holding {
+  id: number;
+  user_id: string;
+  symbol: string;
+  name: string;
+  shares: number;
+  avg_price: number;
+}
+
+interface TiingoPrice {
+  ticker: string;
+  last: number;
+  [key: string]: any;
+}
+
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Enable CORS
@@ -103,17 +118,21 @@ app.get('/api/private', authMiddleware, (c) => {
 });
 
 // Tiingo Search Endpoint
-app.get('/api/search', async (c) => {
+app.get('/api/search', authMiddleware, async (c) => {
   const query = c.req.query('query');
   if (!query) {
     return c.json({ error: 'Query parameter is required' }, 400);
   }
 
   const token = c.env.TIINGO_API_TOKEN;
-  const url = `https://api.tiingo.com/tiingo/utilities/search?query=${encodeURIComponent(query)}&token=${token}`;
+  const url = `https://api.tiingo.com/tiingo/utilities/search?query=${encodeURIComponent(query)}`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Token ${token}`
+      }
+    });
     if (!response.ok) {
       return c.json({ error: 'Failed to fetch search results' }, 500);
     }
@@ -137,37 +156,41 @@ app.get('/api/holdings', authMiddleware, async (c) => {
       .bind(userId)
       .all();
 
-    const holdings = result.results || [];
+    const holdings = (result.results || []) as unknown as Holding[];
 
     if (holdings.length === 0) {
       return c.json([]);
     }
 
     // Extract unique symbols
-    const symbols = [...new Set(holdings.map((h: any) => h.symbol))].join(',');
+    const symbols = [...new Set(holdings.map((h: Holding) => h.symbol))].join(',');
 
     // Fetch current prices from Tiingo
     const token = c.env.TIINGO_API_TOKEN;
-    const priceUrl = `https://api.tiingo.com/iex/?tickers=${symbols}&token=${token}`;
+    const priceUrl = `https://api.tiingo.com/iex/?tickers=${symbols}`;
 
-    const priceResponse = await fetch(priceUrl);
+    const priceResponse = await fetch(priceUrl, {
+      headers: {
+        'Authorization': `Token ${token}`
+      }
+    });
     if (!priceResponse.ok) {
       // Return holdings without price data if Tiingo fails
       return c.json(holdings);
     }
 
-    const priceData = await priceResponse.json();
+    const priceData = await priceResponse.json() as TiingoPrice[];
 
     // Create a map of symbol to price
-    const priceMap: Record<string, any> = {};
+    const priceMap: Record<string, TiingoPrice> = {};
     if (Array.isArray(priceData)) {
-      priceData.forEach((item: any) => {
+      priceData.forEach((item: TiingoPrice) => {
         priceMap[item.ticker] = item;
       });
     }
 
     // Merge price data with holdings
-    const enrichedHoldings = holdings.map((holding: any) => ({
+    const enrichedHoldings = holdings.map((holding: Holding) => ({
       ...holding,
       currentPrice: priceMap[holding.symbol]?.last || null,
       priceData: priceMap[holding.symbol] || null
@@ -196,6 +219,18 @@ app.post('/api/holdings', authMiddleware, async (c) => {
 
     if (typeof shares !== 'number' || typeof avg_price !== 'number') {
       return c.json({ error: 'shares and avg_price must be numbers' }, 400);
+    }
+
+    if (isNaN(shares) || !isFinite(shares) || isNaN(avg_price) || !isFinite(avg_price)) {
+      return c.json({ error: 'shares and avg_price must be valid numbers' }, 400);
+    }
+
+    if (shares <= 0) {
+      return c.json({ error: 'shares must be greater than 0' }, 400);
+    }
+
+    if (avg_price < 0) {
+      return c.json({ error: 'avg_price must be non-negative' }, 400);
     }
 
     // Insert into D1
@@ -251,20 +286,24 @@ app.get('/api/news', authMiddleware, async (c) => {
       .bind(userId)
       .all();
 
-    const holdings = result.results || [];
+    const holdings = result.results as Pick<Holding, 'symbol'>[] || [];
 
     if (holdings.length === 0) {
       return c.json([]);
     }
 
     // Extract unique symbols
-    const symbols = holdings.map((h: any) => h.symbol).join(',');
+    const symbols = holdings.map((h: Pick<Holding, 'symbol'>) => h.symbol).join(',');
 
     // Fetch news from Tiingo
     const token = c.env.TIINGO_API_TOKEN;
-    const newsUrl = `https://api.tiingo.com/tiingo/news?tickers=${symbols}&token=${token}`;
+    const newsUrl = `https://api.tiingo.com/tiingo/news?tickers=${symbols}`;
 
-    const newsResponse = await fetch(newsUrl);
+    const newsResponse = await fetch(newsUrl, {
+      headers: {
+        'Authorization': `Token ${token}`
+      }
+    });
     if (!newsResponse.ok) {
       return c.json({ error: 'Failed to fetch news' }, 500);
     }
