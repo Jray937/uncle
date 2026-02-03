@@ -51,8 +51,15 @@ const authMiddleware = async (c: any, next: any) => {
 };
 
 // Public Endpoint
-app.get('/', (c) => {
-  return c.text('Welcome to Uncle - The Trust Me Bro Backend (Powered by Clerk)!');
+app.get('/', async (c) => {
+  let dbStatus = 'disconnected';
+  try {
+    await c.env['d1-binding'].prepare('SELECT 1').first();
+    dbStatus = 'connected';
+  } catch (error) {
+    // DB connection failed, status remains 'disconnected'
+  }
+  return c.text(`Welcome to Uncle - The Trust Me Bro Backend (Powered by Clerk)! DB Status: ${dbStatus}`);
 });
 
 app.get('/api/public', (c) => {
