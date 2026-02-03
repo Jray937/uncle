@@ -75,7 +75,10 @@ app.get('/', async (c) => {
   } catch (error) {
     // DB connection failed, status remains 'disconnected'
   }
-  return c.text(`Welcome to Uncle - The Trust Me Bro Backend (Powered by Clerk)! DB Status: ${dbStatus}`);
+  
+  const tiingoStatus = c.env.TIINGO_API_TOKEN ? 'Loaded' : 'Not Loaded';
+  
+  return c.text(`Welcome to Uncle - The Trust Me Bro Backend (Powered by Clerk)! DB Status: ${dbStatus} | Tiingo API Key: ${tiingoStatus}`);
 });
 
 app.get('/api/public', (c) => {
