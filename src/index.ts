@@ -32,6 +32,42 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 // Enable CORS
 app.use('/*', cors());
 
+const DEFAULT_DEMO_HOLDING = {
+  symbol: 'TSLA',
+  name: 'Tesla, Inc.',
+  shares: 100,
+  avg_price: 400
+};
+
+const ensureDemoData = async (db: D1Database, userId: string) => {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS holdings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL,
+    shares REAL NOT NULL,
+    avg_price REAL NOT NULL
+  )`).run();
+
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_holdings_user_id ON holdings(user_id)').run();
+
+  await db.prepare(`INSERT INTO holdings (user_id, symbol, name, shares, avg_price)
+    SELECT ?, ?, ?, ?, ?
+    WHERE NOT EXISTS (
+      SELECT 1 FROM holdings WHERE user_id = ? AND symbol = ?
+    )`)
+    .bind(
+      userId,
+      DEFAULT_DEMO_HOLDING.symbol,
+      DEFAULT_DEMO_HOLDING.name,
+      DEFAULT_DEMO_HOLDING.shares,
+      DEFAULT_DEMO_HOLDING.avg_price,
+      userId,
+      DEFAULT_DEMO_HOLDING.symbol
+    )
+    .run();
+};
+
 // Authentication Middleware
 const authMiddleware = async (c: any, next: any) => {
   // Bypass authentication for demo mode
@@ -41,7 +77,14 @@ const authMiddleware = async (c: any, next: any) => {
     email: 'demo@trustmebro.com',
     name: 'Demo User'
   };
-  
+
+  try {
+    await ensureDemoData(c.env['d1-binding'], demoUser.sub);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Failed to initialize demo data', details: message }, 500);
+  }
+
   c.set('user', demoUser);
   await next();
 };
